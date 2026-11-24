@@ -58,6 +58,10 @@ final class LanBonjourBridge {
 
     private func startBonjourBrowser() {
         browser?.cancel()
+        guard Bundle.main.object(forInfoDictionaryKey: "NSLocalNetworkUsageDescription") != nil else {
+            onLog?("提示：缺少局域网权限声明，请使用手动输入安卓 IP 直连")
+            return
+        }
         let descriptor = NWBrowser.Descriptor.bonjour(
             type: OmniConstants.bonjourServiceType,
             domain: nil

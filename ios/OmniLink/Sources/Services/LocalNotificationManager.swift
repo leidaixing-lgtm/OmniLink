@@ -112,14 +112,17 @@ final class LocalNotificationManager: NSObject, UNUserNotificationCenterDelegate
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let callId = (response.notification.request.content.userInfo["callId"] as? String) ?? "android-call"
-        switch response.actionIdentifier {
-        case Self.actionAnswerIdentifier:
-            onCallNotificationAction?(callId, .ANSWER)
-        case Self.actionRejectIdentifier:
-            onCallNotificationAction?(callId, .REJECT)
-        default:
-            break
+        let actionId = response.actionIdentifier
+        DispatchQueue.main.async { [weak self] in
+            switch actionId {
+            case Self.actionAnswerIdentifier:
+                self?.onCallNotificationAction?(callId, .ANSWER)
+            case Self.actionRejectIdentifier:
+                self?.onCallNotificationAction?(callId, .REJECT)
+            default:
+                break
+            }
+            completionHandler()
         }
-        completionHandler()
     }
 }

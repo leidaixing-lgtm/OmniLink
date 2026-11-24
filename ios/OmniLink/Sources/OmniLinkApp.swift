@@ -9,7 +9,9 @@ struct OmniLinkApp: App {
             OmniRootView()
                 .environmentObject(store)
                 .preferredColorScheme(.dark)
-                .onAppear {
+                .task {
+                    // Allow UIKit/SwiftUI scene to finish initial layout before requesting TCC Bluetooth/Network permissions
+                    try? await Task.sleep(nanoseconds: 250_000_000)
                     store.startAll()
                 }
         }

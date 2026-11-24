@@ -62,13 +62,13 @@ jobs:
         run: |
           gradle assembleRelease --no-daemon --stacktrace
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk ../dist/OmniLink-Android-v1.0.0.apk
+          cp app/build/outputs/apk/release/app-release.apk ../dist/OmniLink-Android-v1.0.1.apk
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OmniLink-Android-APK
-          path: dist/OmniLink-Android-v1.0.0.apk
+          path: dist/OmniLink-Android-v1.0.1.apk
           if-no-files-found: error
 
   build-ios-ipa:
@@ -102,18 +102,28 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
+      - name: Verify Info.plist Privacy Keys & Ad-hoc Sign for Sideloaders
+        working-directory: ios
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/OmniLink.app"
+          plutil -p "$APP_PATH/Info.plist"
+          plutil -extract NSBluetoothAlwaysUsageDescription raw "$APP_PATH/Info.plist"
+          plutil -extract NSLocalNetworkUsageDescription raw "$APP_PATH/Info.plist"
+          plutil -extract UIBackgroundModes.0 raw "$APP_PATH/Info.plist"
+          codesign --force --sign - --timestamp=none "$APP_PATH"
+
       - name: Package Payload into IPA
         working-directory: ios
         run: |
           mkdir -p Payload ../dist
           cp -R build/Build/Products/Release-iphoneos/OmniLink.app Payload/OmniLink.app
-          zip -qry ../dist/OmniLink-iOS-v1.0.0-unsigned.ipa Payload
+          zip -qry ../dist/OmniLink-iOS-v1.0.1-unsigned.ipa Payload
 
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OmniLink-iOS-IPA
-          path: dist/OmniLink-iOS-v1.0.0-unsigned.ipa
+          path: dist/OmniLink-iOS-v1.0.1-unsigned.ipa
           if-no-files-found: error
 
   publish-release:
@@ -132,6 +142,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-assets/OmniLink-Android-v1.0.0.apk
-            release-assets/OmniLink-iOS-v1.0.0-unsigned.ipa
+            release-assets/OmniLink-Android-v1.0.1.apk
+            release-assets/OmniLink-iOS-v1.0.1-unsigned.ipa
           generate_release_notes: true

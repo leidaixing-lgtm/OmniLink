@@ -24,14 +24,28 @@ final class BleCentralBridge: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     func start() {
+        // Defensive guard: avoid TCC crash if a third-party signer ever strips Info.plist privacy keys
+        guard Bundle.main.object(forInfoDictionaryKey: "NSBluetoothAlwaysUsageDescription") != nil else {
+            onStateUpdated?("签名工具移除了蓝牙权限声明", false, nil)
+            onLog?("错误：当前 IPA 签名移除了 Info.plist 中的 NSBluetoothAlwaysUsageDescription，请在全能签中关闭移除权限/后台选项")
+            return
+        }
+
         if centralManager == nil {
+            var options: [String: Any] = [
+                CBCentralManagerOptionShowPowerAlertKey: true
+            ]
+            // Only pass RestoreIdentifierKey when 'bluetooth-central' exists in UIBackgroundModes
+            // (CoreBluetooth throws NSInternalInconsistencyException otherwise!)
+            let bgModes = (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]) ?? []
+            if bgModes.contains("bluetooth-central") {
+                options[CBCentralManagerOptionRestoreIdentifierKey] = "com.omnilink.bridge.central"
+            }
+
             centralManager = CBCentralManager(
                 delegate: self,
                 queue: .main,
-                options: [
-                    CBCentralManagerOptionShowPowerAlertKey: true,
-                    CBCentralManagerOptionRestoreIdentifierKey: "com.omnilink.bridge.central"
-                ]
+                options: options
             )
         } else if centralManager.state == .poweredOn {
             startScanningAndReconnect()

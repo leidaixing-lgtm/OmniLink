@@ -32,8 +32,10 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
 
     private let bleBridge = BleCentralBridge()
     private let lanBridge = LanBonjourBridge()
-    private let callKitBridge = CallKitBridgeManager()
-    private let iosCallObserver = CXCallObserver()
+    // Lazily created after UI scene appears for maximum iOS 26/27 beta startup stability
+    private var callKitBridge: CallKitBridgeManager?
+    private var iosCallObserver: CXCallObserver?
+    private var hasStarted = false
 
     private var seenMsgIds: [String] = []
     private var seenMsgSet: Set<String> = []
@@ -54,17 +56,52 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         self.forwardIosCallStateOverLanFallback = defaults.object(forKey: "fwd_ios_call_lan") as? Bool ?? true
         self.manualAndroidIp = defaults.string(forKey: "manual_android_ip") ?? ""
         super.init()
-
-        setupCallbacks()
     }
 
     func startAll() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
+        setupCallbacks()
+
         LocalNotificationManager.shared.configure()
         LocalNotificationManager.shared.requestAuthorization { [weak self] granted in
-            self?.appendLog(granted ? "iOS 本地通知横幅权限已就绪" : "请在系统设置中开启通知权限以接收安卓消息弹窗")
+            Task { @MainActor in
+                self?.appendLog(granted ? "iOS 本地通知横幅权限已就绪" : "请在系统设置中开启通知权限以接收安卓消息弹窗")
+            }
         }
 
-        iosCallObserver.setDelegate(self, queue: .main)
+        let ck = CallKitBridgeManager()
+        ck.onUserCallCommand = { [weak self] callId, cmd in
+            Task { @MainActor in
+                guard let self = self else { return }
+                let env = BridgeEnvelope(
+                    type: .CALL_ACTION,
+                    deviceName: UIDevice.current.name,
+                    platform: "ios",
+                    callAction: CallActionPayload(callId: callId, command: cmd)
+                )
+                self.sendDualChannel(env)
+                self.appendLog("CallKit 触发远程控制安卓电话: \(cmd.rawValue)")
+                if cmd == .REJECT || cmd == .HANGUP {
+                    self.activeAndroidCall = nil
+                } else if cmd == .ANSWER, var current = self.activeAndroidCall {
+                    current.phase = .ACTIVE
+                    self.activeAndroidCall = current
+                }
+            }
+        }
+        ck.onLog = { [weak self] msg in
+            Task { @MainActor in
+                self?.appendLog(msg)
+            }
+        }
+        self.callKitBridge = ck
+
+        let observer = CXCallObserver()
+        observer.setDelegate(self, queue: .main)
+        self.iosCallObserver = observer
+
         bleBridge.start()
         lanBridge.start()
 
@@ -113,7 +150,7 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
                 activeAndroidCall = current
             }
         case .REJECT, .HANGUP:
-            callKitBridge.endActiveCallLocally()
+            callKitBridge?.endActiveCallLocally()
             activeAndroidCall = nil
         case .SPEAKER_ON, .SPEAKER_OFF:
             break
@@ -162,73 +199,69 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         notifications.removeAll()
     }
 
-    // MARK: - Internal Wiring
+    // MARK: - Internal Wiring (Strict MainActor Hop for Swift 6 / iOS 27 Concurrency Safety)
 
     private func setupCallbacks() {
         bleBridge.onStateUpdated = { [weak self] statusText, connected, peer in
-            guard let self = self else { return }
-            self.bleStatusText = statusText
-            self.isBleConnected = connected
-            if let peer = peer {
-                self.blePeerName = peer
-            } else if !connected {
-                self.blePeerName = nil
+            Task { @MainActor in
+                guard let self = self else { return }
+                self.bleStatusText = statusText
+                self.isBleConnected = connected
+                if let peer = peer {
+                    self.blePeerName = peer
+                } else if !connected {
+                    self.blePeerName = nil
+                }
             }
         }
 
         bleBridge.onPairingAuthCompleted = { [weak self] in
-            self?.isAncsPairedReady = true
-        }
-
-        bleBridge.onEnvelopeReceived = { [weak self] env in
-            self?.handleIncomingEnvelope(env, via: "BLE")
-        }
-
-        bleBridge.onLog = { [weak self] msg in
-            self?.appendLog(msg)
-        }
-
-        lanBridge.onConnectionChanged = { [weak self] connected, label in
-            self?.isLanConnected = connected
-            self?.lanPeerLabel = label
-        }
-
-        lanBridge.onDiscoveredServicesChanged = { [weak self] names in
-            self?.discoveredBonjourNames = names
-        }
-
-        lanBridge.onEnvelopeReceived = { [weak self] env in
-            self?.handleIncomingEnvelope(env, via: "Wi-Fi")
-        }
-
-        lanBridge.onLog = { [weak self] msg in
-            self?.appendLog(msg)
-        }
-
-        callKitBridge.onUserCallCommand = { [weak self] callId, cmd in
-            guard let self = self else { return }
-            let env = BridgeEnvelope(
-                type: .CALL_ACTION,
-                deviceName: UIDevice.current.name,
-                platform: "ios",
-                callAction: CallActionPayload(callId: callId, command: cmd)
-            )
-            self.sendDualChannel(env)
-            self.appendLog("CallKit 触发远程控制安卓电话: \(cmd.rawValue)")
-            if cmd == .REJECT || cmd == .HANGUP {
-                self.activeAndroidCall = nil
-            } else if cmd == .ANSWER, var current = self.activeAndroidCall {
-                current.phase = .ACTIVE
-                self.activeAndroidCall = current
+            Task { @MainActor in
+                self?.isAncsPairedReady = true
             }
         }
 
-        callKitBridge.onLog = { [weak self] msg in
-            self?.appendLog(msg)
+        bleBridge.onEnvelopeReceived = { [weak self] env in
+            Task { @MainActor in
+                self?.handleIncomingEnvelope(env, via: "BLE")
+            }
+        }
+
+        bleBridge.onLog = { [weak self] msg in
+            Task { @MainActor in
+                self?.appendLog(msg)
+            }
+        }
+
+        lanBridge.onConnectionChanged = { [weak self] connected, label in
+            Task { @MainActor in
+                self?.isLanConnected = connected
+                self?.lanPeerLabel = label
+            }
+        }
+
+        lanBridge.onDiscoveredServicesChanged = { [weak self] names in
+            Task { @MainActor in
+                self?.discoveredBonjourNames = names
+            }
+        }
+
+        lanBridge.onEnvelopeReceived = { [weak self] env in
+            Task { @MainActor in
+                self?.handleIncomingEnvelope(env, via: "Wi-Fi")
+            }
+        }
+
+        lanBridge.onLog = { [weak self] msg in
+            Task { @MainActor in
+                self?.appendLog(msg)
+            }
         }
 
         LocalNotificationManager.shared.onCallNotificationAction = { [weak self] _, cmd in
-            self?.sendCallCommandToAndroid(cmd)
+            Task { @MainActor in
+                self?.sendCallCommandToAndroid(cmd)
+            }
         }
     }
 
@@ -287,7 +320,11 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
             } else {
                 activeAndroidCall = call
             }
-            callKitBridge.handleAndroidCallState(call, enableCallKit: enableCallKitForAndroidCalls)
+            if let ck = callKitBridge {
+                ck.handleAndroidCallState(call, enableCallKit: enableCallKitForAndroidCalls)
+            } else {
+                LocalNotificationManager.shared.postFallbackCallBanner(call)
+            }
             appendLog("安卓通话状态: \(call.phase.rawValue) (\(call.callerName))")
 
         case .CALL_ACTION:
@@ -314,7 +351,7 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         }
     }
 
-    // MARK: - CXCallObserverDelegate (Wi-Fi fallback alert when iPhone itself receives a cellular call)
+    // MARK: - CXCallObserverDelegate
 
     nonisolated func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
         let callUuid = call.uuid
@@ -324,10 +361,10 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         let isOutgoing = call.isOutgoing
 
         Task { @MainActor in
-            // Never echo OmniLink's own CallKit call for Android incoming calls back to Android!
-            guard !self.callKitBridge.isManagedCallUUID(callUuid) else { return }
+            if let ck = self.callKitBridge, ck.isManagedCallUUID(callUuid) {
+                return
+            }
             guard self.forwardIosCallStateOverLanFallback, !isOutgoing else { return }
-            // Only send Wi-Fi fallback if BLE ANCS isn't already active
             guard !self.isAncsPairedReady else { return }
 
             let phase: CallPhase
