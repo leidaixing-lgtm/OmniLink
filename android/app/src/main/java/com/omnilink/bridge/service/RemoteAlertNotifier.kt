@@ -13,12 +13,14 @@ import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.omnilink.bridge.MainActivity
 import com.omnilink.bridge.R
 import com.omnilink.bridge.protocol.CallPhase
 import com.omnilink.bridge.protocol.CallStatePayload
 import com.omnilink.bridge.protocol.NotificationPayload
+import com.omnilink.bridge.telephony.OmniTelecomConnectionService
 import com.omnilink.bridge.ui.IncomingCallActivity
 
 class RemoteAlertNotifier(private val context: Context) {
@@ -26,7 +28,7 @@ class RemoteAlertNotifier(private val context: Context) {
     companion object {
         const val CHANNEL_FOREGROUND = "omnilink_foreground"
         const val CHANNEL_MIRROR_NOTIF = "omnilink_mirror_notif"
-        const val CHANNEL_INCOMING_CALL = "omnilink_incoming_call"
+        const val CHANNEL_INCOMING_CALL = "omnilink_incoming_call_v2"
 
         const val FOREGROUND_NOTIF_ID = 9001
         const val INCOMING_CALL_NOTIF_ID = 9002
@@ -34,6 +36,8 @@ class RemoteAlertNotifier(private val context: Context) {
 
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    private var activeCallHandledBySystemInCallUi = false
 
     init {
         createChannels()
@@ -60,10 +64,10 @@ class RemoteAlertNotifier(private val context: Context) {
 
         val callChannel = NotificationChannel(
             CHANNEL_INCOMING_CALL,
-            "来自 iPhone 的来电提醒",
+            "来自 iPhone 的系统级来电通话",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "iPhone 来电全屏弹窗与一键接听/挂断控制"
+            description = "调用安卓系统 CallStyle 通话胶囊与锁屏来电提醒"
             enableVibration(true)
             setSound(
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
@@ -124,11 +128,27 @@ class RemoteAlertNotifier(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun updateIphoneCallAlert(call: CallStatePayload?) {
         if (call == null || call.phase == CallPhase.ENDED) {
+            activeCallHandledBySystemInCallUi = false
+            OmniTelecomConnectionService.endConnectionRemotely()
             NotificationManagerCompat.from(context).cancel(INCOMING_CALL_NOTIF_ID)
             return
         }
+
+        // 1. Hand off to Android System Telecom Framework first!
+        if (call.phase == CallPhase.RINGING) {
+            activeCallHandledBySystemInCallUi =
+                OmniTelecomConnectionService.reportIncomingIphoneCall(context, call)
+            if (activeCallHandledBySystemInCallUi) {
+                // Native Android System Phone App (InCallUI) is now displaying the full-screen incoming call!
+                return
+            }
+        } else if (call.phase == CallPhase.ACTIVE && activeCallHandledBySystemInCallUi) {
+            return
+        }
+
         if (!canPostNotifications()) return
 
+        // 2. Render Native Android SystemUI CallStyle Plugin (Call Chip / Fluid Cloud / Heads-Up Call Card)
         val fullScreenIntent = PendingIntent.getActivity(
             context,
             100,
@@ -156,41 +176,45 @@ class RemoteAlertNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (call.phase == CallPhase.RINGING) {
-            "iPhone 来电: ${call.callerName}"
+        val callerPerson = Person.Builder()
+            .setName("[iPhone] ${call.callerName.ifBlank { "未知来电" }}")
+            .setImportant(true)
+            .build()
+
+        val callStyle = if (call.phase == CallPhase.RINGING) {
+            NotificationCompat.CallStyle.forIncomingCall(callerPerson, rejectIntent, answerIntent)
         } else {
-            "iPhone 通话已接通: ${call.callerName}"
+            NotificationCompat.CallStyle.forOngoingCall(callerPerson, rejectIntent)
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_INCOMING_CALL)
             .setSmallIcon(R.drawable.ic_link_notif)
-            .setContentTitle(title)
+            .setContentTitle("[iPhone] ${call.callerName.ifBlank { "未知来电" }}")
             .setContentText(call.phoneNumber)
+            .setStyle(callStyle)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
+            .setUsesChronometer(call.phase == CallPhase.ACTIVE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenIntent, call.phase == CallPhase.RINGING)
 
-        if (call.phase == CallPhase.RINGING) {
-            builder.addAction(0, "接听 iPhone 来电", answerIntent)
-            builder.addAction(0, "挂断拒接", rejectIntent)
-        } else {
-            builder.addAction(0, "结束/挂断", rejectIntent)
-        }
-
-        NotificationManagerCompat.from(context).notify(INCOMING_CALL_NOTIF_ID, builder.build())
-
-        // Also proactively open full-screen overlay when unlocked/foreground allowed
-        if (call.phase == CallPhase.RINGING) {
-            try {
-                context.startActivity(
-                    Intent(context, IncomingCallActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    }
-                )
-            } catch (_: Exception) {
-            }
+        try {
+            NotificationManagerCompat.from(context).notify(INCOMING_CALL_NOTIF_ID, builder.build())
+        } catch (_: Exception) {
+            // Fallback for heavily customized ROMs if CallStyle validation fails
+            val fallback = NotificationCompat.Builder(context, CHANNEL_INCOMING_CALL)
+                .setSmallIcon(R.drawable.ic_link_notif)
+                .setContentTitle("iPhone 来电: ${call.callerName}")
+                .setContentText(call.phoneNumber)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setOngoing(true)
+                .setFullScreenIntent(fullScreenIntent, call.phase == CallPhase.RINGING)
+                .addAction(0, "接听", answerIntent)
+                .addAction(0, "挂断", rejectIntent)
+                .build()
+            NotificationManagerCompat.from(context).notify(INCOMING_CALL_NOTIF_ID, fallback)
         }
     }
 

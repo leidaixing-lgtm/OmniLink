@@ -29,6 +29,12 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
     @Published var forwardIosCallStateOverLanFallback: Bool {
         didSet { UserDefaults.standard.set(forwardIosCallStateOverLanFallback, forKey: "fwd_ios_call_lan") }
     }
+    @Published var enableBlackScreenKeepAlive: Bool {
+        didSet {
+            UserDefaults.standard.set(enableBlackScreenKeepAlive, forKey: "black_screen_keepalive")
+            BackgroundKeepAliveManager.shared.setEnabled(enableBlackScreenKeepAlive)
+        }
+    }
 
     private let bleBridge = BleCentralBridge()
     private let lanBridge = LanBonjourBridge()
@@ -54,6 +60,7 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         self.enableCallKitForAndroidCalls = defaults.object(forKey: "enable_callkit") as? Bool ?? true
         self.showAndroidNotificationBanners = defaults.object(forKey: "show_android_banners") as? Bool ?? true
         self.forwardIosCallStateOverLanFallback = defaults.object(forKey: "fwd_ios_call_lan") as? Bool ?? true
+        self.enableBlackScreenKeepAlive = defaults.object(forKey: "black_screen_keepalive") as? Bool ?? true
         self.manualAndroidIp = defaults.string(forKey: "manual_android_ip") ?? ""
         super.init()
     }
@@ -63,6 +70,7 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
         hasStarted = true
 
         setupCallbacks()
+        BackgroundKeepAliveManager.shared.setEnabled(enableBlackScreenKeepAlive)
 
         LocalNotificationManager.shared.configure()
         LocalNotificationManager.shared.requestAuthorization { [weak self] granted in
@@ -321,7 +329,7 @@ final class OmniAppStore: NSObject, ObservableObject, CXCallObserverDelegate {
                 activeAndroidCall = call
             }
             if let ck = callKitBridge {
-                ck.handleAndroidCallState(call, enableCallKit: enableCallKitForAndroidCalls)
+                ck.handleAndroidCallState(call, enableSystemCallUI: enableCallKitForAndroidCalls)
             } else {
                 LocalNotificationManager.shared.postFallbackCallBanner(call)
             }

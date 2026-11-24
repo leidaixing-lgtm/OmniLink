@@ -79,9 +79,11 @@ fun OmniMainScreen(
     hasPhonePerms: Boolean,
     hasNotifListener: Boolean,
     ignoringBatteryOpt: Boolean,
+    hasSystemInCallPlugin: Boolean,
     onRequestRuntimePerms: () -> Unit,
     onOpenNotificationListenerSettings: () -> Unit,
     onRequestBatteryWhitelist: () -> Unit,
+    onOpenCallingAccountSettings: () -> Unit,
     onRequestCallScreeningRole: () -> Unit,
     onRestartBridge: () -> Unit,
     onConnectManualIp: (String) -> Unit
@@ -210,9 +212,11 @@ fun OmniMainScreen(
                     hasPhonePerms = hasPhonePerms,
                     hasNotifListener = hasNotifListener,
                     ignoringBatteryOpt = ignoringBatteryOpt,
+                    hasSystemInCallPlugin = hasSystemInCallPlugin,
                     onRequestRuntimePerms = onRequestRuntimePerms,
                     onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
                     onRequestBatteryWhitelist = onRequestBatteryWhitelist,
+                    onOpenCallingAccountSettings = onOpenCallingAccountSettings,
                     onRequestCallScreeningRole = onRequestCallScreeningRole,
                     onConnectManualIp = onConnectManualIp
                 )
@@ -294,9 +298,11 @@ private fun DashboardTab(
     hasPhonePerms: Boolean,
     hasNotifListener: Boolean,
     ignoringBatteryOpt: Boolean,
+    hasSystemInCallPlugin: Boolean,
     onRequestRuntimePerms: () -> Unit,
     onOpenNotificationListenerSettings: () -> Unit,
     onRequestBatteryWhitelist: () -> Unit,
+    onOpenCallingAccountSettings: () -> Unit,
     onRequestCallScreeningRole: () -> Unit,
     onConnectManualIp: (String) -> Unit
 ) {
@@ -407,6 +413,18 @@ private fun DashboardTab(
                         granted = ignoringBatteryOpt,
                         actionLabel = "白名单",
                         onAction = onRequestBatteryWhitelist
+                    )
+                    PermissionCheckRow(
+                        title = "5. 安卓系统原生电话界面插件 (开启通话账户)",
+                        granted = hasSystemInCallPlugin,
+                        actionLabel = "去开启",
+                        onAction = onOpenCallingAccountSettings
+                    )
+                    Text(
+                        text = "提示：在「通话账户」中勾选开启「双机互联」后，iPhone 来电将直接调起安卓系统自带电话全屏界面；若系统隐藏该设置，亦会自动使用 Android 系统级 CallStyle 通话胶囊插件。",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8),
+                        lineHeight = 16.sp
                     )
 
                     OutlinedButton(
@@ -639,8 +657,26 @@ private fun DiagnosticsTab(logs: List<String>) {
                     ) {
                         Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("模拟来电弹CallKit", fontSize = 12.sp, color = Color.White)
+                        Text("模拟来电弹iPhone", fontSize = 12.sp, color = Color.White)
                     }
+                }
+                OutlinedButton(
+                    onClick = {
+                        OmniRepository.onIphoneCallStateChanged(
+                            CallStatePayload(
+                                callId = "sim-ios-call-${System.currentTimeMillis()}",
+                                phase = CallPhase.RINGING,
+                                phoneNumber = "139-0013-9000",
+                                callerName = "模拟 iPhone 来电",
+                                sourcePlatform = "ios"
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("测试本机安卓系统来电插件 (InCallUI / CallStyle)", fontSize = 12.sp)
                 }
             }
         }

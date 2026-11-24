@@ -15,6 +15,7 @@ import com.omnilink.bridge.protocol.CallActionPayload
 import com.omnilink.bridge.protocol.MessageType
 import com.omnilink.bridge.protocol.RemoteCallCommand
 import com.omnilink.bridge.telephony.AndroidCallController
+import com.omnilink.bridge.telephony.OmniTelecomConnectionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,6 +124,7 @@ class OmniBridgeForegroundService : Service() {
 
     private fun startAllTransports() {
         OmniRepository.updateConnection { it.copy(isServiceRunning = true) }
+        OmniTelecomConnectionService.registerPhoneAccounts(applicationContext)
         try {
             bleManager.start()
         } catch (e: Exception) {

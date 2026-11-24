@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import com.omnilink.bridge.service.OmniBridgeForegroundService
 import com.omnilink.bridge.service.OmniNotificationListenerService
+import com.omnilink.bridge.telephony.OmniTelecomConnectionService
 import com.omnilink.bridge.ui.OmniMainScreen
 
 private val OmniColorScheme = darkColorScheme(
@@ -42,13 +43,17 @@ private val OmniColorScheme = darkColorScheme(
 
 class MainActivity : ComponentActivity() {
 
+    private var resumeCounter by androidx.compose.runtime.mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OmniTelecomConnectionService.registerPhoneAccounts(this)
         startBridgeService()
 
         setContent {
             MaterialTheme(colorScheme = OmniColorScheme) {
                 var refreshTick by remember { mutableIntStateOf(0) }
+                val combinedKey = refreshTick + resumeCounter
 
                 val runtimePermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -74,11 +79,12 @@ class MainActivity : ComponentActivity() {
                 }
 
                 OmniMainScreen(
-                    permissionRefreshKey = refreshTick,
+                    permissionRefreshKey = combinedKey,
                     hasBluetoothPerms = hasBluetoothPermissions(),
                     hasPhonePerms = hasPhonePermissions(),
                     hasNotifListener = isNotificationListenerEnabled(),
                     ignoringBatteryOpt = isIgnoringBatteryOptimizations(),
+                    hasSystemInCallPlugin = OmniTelecomConnectionService.isSystemInCallAccountEnabled(this),
                     onRequestRuntimePerms = {
                         runtimePermissionLauncher.launch(requiredRuntimePermissions().toTypedArray())
                     },
@@ -87,6 +93,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestBatteryWhitelist = {
                         requestIgnoreBatteryOptimization()
+                    },
+                    onOpenCallingAccountSettings = {
+                        openCallingAccountsSettings()
                     },
                     onRequestCallScreeningRole = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -110,7 +119,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumeCounter++
+        OmniTelecomConnectionService.registerPhoneAccounts(this)
         startBridgeService()
+    }
+
+    private fun openCallingAccountsSettings() {
+        OmniTelecomConnectionService.registerPhoneAccounts(this)
+        try {
+            startActivity(OmniTelecomConnectionService.buildEnableCallingAccountsIntent())
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun requiredRuntimePermissions(): List<String> {

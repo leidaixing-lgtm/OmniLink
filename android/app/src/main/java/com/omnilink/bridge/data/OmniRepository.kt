@@ -9,6 +9,7 @@ import com.omnilink.bridge.protocol.CallStatePayload
 import com.omnilink.bridge.protocol.MessageType
 import com.omnilink.bridge.protocol.NotificationPayload
 import com.omnilink.bridge.protocol.RemoteCallCommand
+import com.omnilink.bridge.telephony.OmniTelecomConnectionService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -205,16 +206,25 @@ object OmniRepository {
     }
 
     /**
-     * Triggered when user taps "接听" or "挂断" on Android UI / Notification for an iPhone call.
+     * Triggered when user taps "接听" or "挂断" on Android System Telecom UI / Notification / App UI for an iPhone call.
      */
-    fun performIphoneCallAction(answer: Boolean) {
+    fun performIphoneCallAction(answer: Boolean, fromSystemTelecom: Boolean = false) {
         val call = _remoteIphoneCall.value ?: return
         log(if (answer) "发送指令: 接听 iPhone 来电" else "发送指令: 拒接/挂断 iPhone 来电")
         onRemoteIphoneCallAction?.invoke(call, answer)
+        if (!fromSystemTelecom) {
+            if (answer) {
+                OmniTelecomConnectionService.markActiveFromAppUi()
+            } else {
+                OmniTelecomConnectionService.endConnectionRemotely(localReject = true)
+            }
+        }
         if (!answer) {
             onIphoneCallStateChanged(null)
         } else {
-            _remoteIphoneCall.value = call.copy(phase = CallPhase.ACTIVE)
+            val activeState = call.copy(phase = CallPhase.ACTIVE)
+            _remoteIphoneCall.value = activeState
+            onRemoteIphoneCallAlert?.invoke(activeState)
         }
     }
 

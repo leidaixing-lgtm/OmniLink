@@ -350,8 +350,17 @@ private struct SettingsAndGuideView: View {
                 Section("来电与通知偏好") {
                     Toggle(isOn: $store.enableCallKitForAndroidCalls) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("使用 iOS 原生 CallKit 显示安卓来电")
-                            Text("锁屏全屏弹出来电界面，支持直接滑动接听或拒接安卓电话")
+                            Text("启用 iOS 系统原生电话界面 (LiveCommunicationKit / CallKit)")
+                            Text("完美适配国行及全球机型：锁屏黑屏亮屏弹出原生全屏来电，解锁状态显示灵动岛通话条")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Toggle(isOn: $store.enableBlackScreenKeepAlive) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("黑屏锁屏秒级唤醒保活")
+                            Text("保持无感混音后台会话（不打断音乐、无麦克风黄点），确保锁屏黑屏久置也能秒弹安卓来电")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

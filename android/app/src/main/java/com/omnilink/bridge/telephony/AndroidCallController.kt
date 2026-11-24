@@ -121,6 +121,13 @@ class AndroidCallController(private val context: Context) {
     }
 
     private fun handleAndroidCallState(state: Int) {
+        // Prevent echoing our own virtual OmniTelecomConnectionService (for incoming iPhone calls) back to iPhone!
+        if (OmniTelecomConnectionService.activeConnection != null ||
+            OmniRepository.remoteIphoneCall.value != null
+        ) {
+            return
+        }
+
         when (state) {
             TelephonyManager.CALL_STATE_RINGING -> {
                 activeCallId = "android-call-${System.currentTimeMillis()}"

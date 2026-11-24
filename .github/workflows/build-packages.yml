@@ -62,13 +62,13 @@ jobs:
         run: |
           gradle assembleRelease --no-daemon --stacktrace
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk ../dist/OmniLink-Android-v1.0.1.apk
+          cp app/build/outputs/apk/release/app-release.apk ../dist/OmniLink-Android-v1.1.0.apk
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OmniLink-Android-APK
-          path: dist/OmniLink-Android-v1.0.1.apk
+          path: dist/OmniLink-Android-v1.1.0.apk
           if-no-files-found: error
 
   build-ios-ipa:
@@ -117,13 +117,13 @@ jobs:
         run: |
           mkdir -p Payload ../dist
           cp -R build/Build/Products/Release-iphoneos/OmniLink.app Payload/OmniLink.app
-          zip -qry ../dist/OmniLink-iOS-v1.0.1-unsigned.ipa Payload
+          zip -qry ../dist/OmniLink-iOS-v1.1.0-unsigned.ipa Payload
 
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OmniLink-iOS-IPA
-          path: dist/OmniLink-iOS-v1.0.1-unsigned.ipa
+          path: dist/OmniLink-iOS-v1.1.0-unsigned.ipa
           if-no-files-found: error
 
   publish-release:
@@ -142,6 +142,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-assets/OmniLink-Android-v1.0.1.apk
-            release-assets/OmniLink-iOS-v1.0.1-unsigned.ipa
+            release-assets/OmniLink-Android-v1.1.0.apk
+            release-assets/OmniLink-iOS-v1.1.0-unsigned.ipa
           generate_release_notes: true
