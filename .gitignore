@@ -1,0 +1,18 @@
+# Android
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+*.jks
+*.keystore
+
+# iOS
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+Payload/
+
+# Output & OS
+dist/
+.DS_Store
